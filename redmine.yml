@@ -1,0 +1,106 @@
+---
+- hosts: "{{ instance }}"
+  vars:
+    instance: test-redmine
+    site: test-projects.demlabs.net
+    pakages:
+      - nginx
+      - git
+      - rsync
+      - mc
+      - docker.io
+      - curl
+  become: true
+  tasks:
+
+  - name: Update apt cache and make sure pakages are installed
+    apt:
+      name: "{{ pakages }}"
+      update_cache: true
+      cache_valid_time: 3600
+
+  - name: Install docker-compose from official github repo
+    get_url:
+      url : "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-{{ ansible_system }}-{{ ansible_architecture }}"
+      dest: /usr/local/bin/docker-compose
+      mode: "u+x,g+x"
+
+  - name: Make sure the pip is present
+    apt:
+      name: python3-pip
+      state: present
+
+  - name: Ensure docker & docker-compose is present
+    pip:
+      name: "{{ item }}"
+      executable: pip3
+    with_items:
+      - docker
+      - docker-compose
+
+  - name: Ensure the default configuration is absent
+    ansible.builtin.file:
+      path: "/etc/nginx/sites-enabled/default"
+      state: absent
+    notify:
+      - restart nginx
+
+  - name: Ensure the nginx config is present
+    ansible.builtin.template:
+      src: "nginx_redmine_conf.j2"
+      dest: "/etc/nginx/sites-available/{{ site }}"
+    notify:
+      - restart nginx
+
+  - name: Ensure the nginx config is enabled
+    ansible.builtin.file:
+      dest: "/etc/nginx/sites-enabled/{{ site }}"
+      src: "/etc/nginx/sites-available/{{ site }}"
+      state: link
+    notify:
+      - restart nginx
+
+  - name: Ensure the directory redmine_on_docker is present
+    file:
+      path: /root/redmine_on_docker
+      state: directory
+
+  - name: Ensure the docker-compose file is present
+    ansible.builtin.copy:
+      src: files/docker-compose.yml
+      dest: /root/redmine_on_docker/docker-compose.yml
+      owner: root
+      group: root
+      mode: '0644'
+
+  - name: Tear down existing services
+    community.docker.docker_compose:
+      project_src: /root/redmine_on_docker
+      state: absent
+
+  - name: Create and start services
+    community.docker.docker_compose:
+      project_src: /root/redmine_on_docker
+    register: output
+
+  - ansible.builtin.debug:
+      var: output
+
+  - name: Run `docker-compose up` again
+    community.docker.docker_compose:
+      project_src: /root/redmine_on_docker
+      build: false
+    register: output
+
+  - ansible.builtin.debug:
+      var: output
+
+  - ansible.builtin.assert:
+      that: "not output.changed "
+
+  handlers:
+    - name: restart nginx
+      become: true
+      service:
+        name: nginx
+        state: restarted
