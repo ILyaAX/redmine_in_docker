@@ -1,8 +1,8 @@
 ---
 - hosts: "{{ instance }}"
   vars:
-    instance: test-redmine
-    site: test-projects.demlabs.net
+    instance: redmine               ### Your host
+    site: your-site.com             ### Your website
     pakages:
       - nginx
       - git
